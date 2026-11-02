@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interactive 3D PDF Flipbook Viewer</title>
+
+  <!-- PDF.js v2.16.105 CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <!-- StPageFlip (page-flip.browser.js) CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --bg-panel: #1e293b;
+      --bg-hover: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --border: #334155;
+      --toolbar-height: 56px;
+      --sidebar-width: 310px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+
+    /* Top Toolbar */
+    .toolbar {
+      height: var(--toolbar-height);
+      background-color: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 30;
+      gap: 12px;
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 260px;
+      margin-left: 4px;
+    }
+
+    .btn {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 11px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn:hover:not(:disabled) {
+      background-color: var(--bg-hover);
+      border-color: var(--text-muted);
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background-color: var(--accent);
+      color: #0f172a;
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background-color: var(--accent-hover);
+      color: #fff;
+      border-color: var(--accent-hover);
+    }
+
+    .btn-active {
+      background-color: rgba(56, 189, 248, 0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .page-indicator {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      min-width: 115px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .zoom-badge {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      min-width: 48px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Main Workspace Layout */
+    .workspace {
+      display: flex;
+      flex: 1;
+      height: calc(100vh - var(--toolbar-height));
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Left Collapsible Sidebar (TOC + Page Jump) */
+    .sidebar {
+      width: var(--sidebar-width);
+      background-color: var(--bg-panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 20;
+      flex-shrink: 0;
+    }
+
+    .sidebar.collapsed {
+      margin-left: calc(var(--sidebar-width) * -1);
+    }
+
+    .sidebar-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .sidebar-title {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .jump-box {
+      display: flex;
+      gap: 6px;
+    }
+
+    .jump-input {
+      flex: 1;
+      background-color: var(--bg-dark);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    .jump-input:focus {
+      border-color: var(--accent);
+    }
+
+    .toc-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 8px;
+    }
+
+    .toc-list {
+      list-style: none;
+    }
+
+    .toc-nested {
+      list-style: none;
+      padding-left: 14px;
+      border-left: 1px solid var(--border);
+      margin-left: 8px;
+    }
+
+    .toc-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 7px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.84rem;
+      color: var(--text-main);
+      transition: background 0.15s;
+      gap: 8px;
+      line-height: 1.35;
+    }
+
+    .toc-item:hover {
+      background-color: var(--bg-hover);
+      color: var(--accent);
+    }
+
+    .toc-item.active {
+      background-color: rgba(56, 189, 248, 0.14);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .toc-page-num {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Main Flipbook Stage */
+    .stage {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+      padding: 24px;
+    }
+
+    .zoom-wrapper {
+      transform-origin: center center;
+      transition: transform 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Flipbook & Page Styling */
+    #flipbook {
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.65);
+      display: none;
+    }
+
+    .page {
+      background-color: #ffffff;
+      overflow: hidden;
+      position: relative;
+      box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.08);
+    }
+
+    /* Realistic book spine shadow overlay */
+    .page.--left::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 28px;
+      background: linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,0.18));
+      pointer-events: none;
+    }
+
+    .page.--right::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 28px;
+      background: linear-gradient(to left, rgba(0,0,0,0), rgba(0,0,0,0.18));
+      pointer-events: none;
+    }
+
+    .page-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background-color: #ffffff;
+    }
+
+    .page-loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-size: 0.85rem;
+      background: #ffffff;
+      z-index: 1;
+      gap: 8px;
+    }
+
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid #e2e8f0;
+      border-top-color: #0284c7;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Empty / Dropzone State */
+    .empty-state {
+      max-width: 480px;
+      text-align: center;
+      background-color: rgba(30, 41, 59, 0.85);
+      border: 2px dashed var(--border);
+      border-radius: 16px;
+      padding: 40px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      backdrop-filter: blur(8px);
+      transition: border-color 0.2s, background-color 0.2s;
+    }
+
+    .empty-state.dragover {
+      border-color: var(--accent);
+      background-color: rgba(56, 189, 248, 0.1);
+    }
+
+    .empty-icon {
+      width: 56px;
+      height: 56px;
+      color: var(--accent);
+    }
+
+    .empty-state h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .empty-state p {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Floating Side Navigation Arrows */
+    .floating-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background-color: rgba(15, 23, 42, 0.75);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 15;
+      transition: all 0.15s;
+    }
+
+    .floating-nav:hover:not(:disabled) {
+      background-color: var(--accent);
+      color: #0f172a;
+      border-color: var(--accent);
+    }
+
+    .floating-nav:disabled {
+      opacity: 0.25;
+      cursor: default;
+    }
+
+    .floating-prev { left: 18px; }
+    .floating-next { right: 18px; }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #64748b;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Toolbar -->
+  <header class="toolbar">
+    <div class="toolbar-group">
+      <button id="toggleSidebarBtn" class="btn" title="Toggle Table of Contents (T)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="12" x2="15" y2="12"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+        TOC
+      </button>
+
+      <label for="pdfUploadInput" class="btn btn-primary" title="Load Local PDF File">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        Open PDF
+      </label>
+      <input type="file" id="pdfUploadInput" accept="application/pdf" />
+
+      <span id="bookTitle" class="brand-title">The Data Center as a Computer (4th Ed.)</span>
+    </div>
+
+    <!-- Page Navigation Controls -->
+    <div class="toolbar-group">
+      <button id="firstPageBtn" class="btn" disabled title="First Page (Home)">⏮</button>
+      <button id="prevPageBtn" class="btn" disabled title="Previous Page (Left Arrow)">◀ Prev</button>
+      <span id="pageIndicator" class="page-indicator">No PDF Loaded</span>
+      <button id="nextPageBtn" class="btn" disabled title="Next Page (Right Arrow)">Next ▶</button>
+      <button id="lastPageBtn" class="btn" disabled title="Last Page (End)">⏭</button>
+    </div>
+
+    <!-- View Mode, Zoom & Fullscreen Controls -->
+    <div class="toolbar-group">
+      <button id="viewModeBtn" class="btn" disabled title="Toggle Single / Double Page Spread">
+        <span id="viewModeLabel">📖 2-Page Spread</span>
+      </button>
+
+      <button id="zoomOutBtn" class="btn" disabled title="Zoom Out (-)">−</button>
+      <span id="zoomBadge" class="zoom-badge">100%</span>
+      <button id="zoomInBtn" class="btn" disabled title="Zoom In (+)">+</button>
+
+      <button id="fullscreenBtn" class="btn" title="Toggle Fullscreen (F)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <div class="workspace">
+    <!-- Left Collapsible Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">
+          <span>Table of Contents</span>
+          <span id="tocBadge" style="font-size:0.72rem; font-weight:500;">Outline</span>
+        </div>
+        <div class="jump-box">
+          <input
+            type="number"
+            id="pageJumpInput"
+            class="jump-input"
+            placeholder="Jump to PDF page..."
+            min="1"
+            disabled
+          />
+          <button id="pageJumpBtn" class="btn" disabled>Go</button>
+        </div>
+      </div>
+
+      <div id="tocContainer" class="toc-container">
+        <ul id="tocList" class="toc-list"></ul>
+      </div>
+    </aside>
+
+    <!-- Main Flipbook Stage -->
+    <main id="stage" class="stage">
+      <button id="floatPrevBtn" class="floating-nav floating-prev" disabled title="Previous Page (←)">
+        &#10094;
+      </button>
+
+      <!-- Drag & Drop / Initial Upload Prompt -->
+      <div id="emptyState" class="empty-state">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+        <h2>Load Your PDF Document</h2>
+        <p>
+          Click <strong>Open PDF</strong> above or drag and drop your PDF file
+          (e.g., <em>Final 4th Edition Springer DaaC book.pdf</em>) anywhere onto this stage.
+          Everything renders 100% locally in your browser memory.
+        </p>
+        <label for="pdfUploadInput" class="btn btn-primary" style="padding: 10px 18px; font-size: 0.95rem;">
+          Select PDF from Computer
+        </label>
+      </div>
+
+      <!-- Zoom Wrapper & Flipbook Mount -->
+      <div id="zoomWrapper" class="zoom-wrapper">
+        <div id="flipbook"></div>
+      </div>
+
+      <button id="floatNextBtn" class="floating-nav floating-next" disabled title="Next Page (→)">
+        &#10095;
+      </button>
+    </main>
+  </div>
+
+  <script>
+    // Configure PDF.js worker (v2.16.105)
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+
+    /**
+     * Built-in Fallback Table of Contents for:
+     * "The Data Center as a Computer: Designing Warehouse-Scale Machines (4th Edition)"
+     * Used automatically if the loaded PDF does not have an embedded bookmark tree.
+     * Note: Book page 1 corresponds to PDF page 25 (front matter occupies pages 1-24).
+     */
+    const DAAC_4TH_EDITION_TOC = [
+      { title: "Front Cover & Title", pdfPage: 1 },
+      { title: "Foreword", pdfPage: 7 },
+      { title: "Preface", pdfPage: 8 },
+      { title: "Abstract", pdfPage: 12 },
+      { title: "Contents", pdfPage: 13 },
+      { title: "List of Figures", pdfPage: 21 },
+      {
+        title: "1. Introduction",
+        pdfPage: 25,
+        items: [
+          { title: "1.1 Setting the context", pdfPage: 25 },
+          { title: "1.2 Warehouse-Scale Computers (WSCs)", pdfPage: 26 },
+          { title: "1.3 Cost efficiency at scale", pdfPage: 28 },
+          { title: "1.4 Why WSCs might matter to you", pdfPage: 29 },
+          { title: "1.5 Overview of the book", pdfPage: 30 },
+          { title: "1.6 What is new in the fourth edition", pdfPage: 30 }
+        ]
+      },
+      {
+        title: "2. Overview of WSC Architecture",
+        pdfPage: 32,
+        items: [
+          { title: "2.1 Regions and zones", pdfPage: 32 },
+          { title: "2.2 Buildings and Infrastructure", pdfPage: 34 },
+          { title: "2.3 Servers", pdfPage: 36 },
+          { title: "2.4 Storage", pdfPage: 37 },
+          { title: "2.5 Networking Fabric", pdfPage: 39 },
+          { title: "2.6 Energy Usage", pdfPage: 40 },
+          { title: "2.7 Handling Failures and Repairs", pdfPage: 40 }
+        ]
+      },
+      {
+        title: "3. Overview of WSC Workloads",
+        pdfPage: 42,
+        items: [
+          { title: "3.1 WSC workloads", pdfPage: 42 },
+          { title: "3.2 Hyperscale applications (Search, YouTube, Gmail)", pdfPage: 46 },
+          { title: "3.3 AI workloads (Training, Inference, LLMs)", pdfPage: 53 },
+          { title: "3.4 Case study: Google Compute Engine", pdfPage: 58 },
+          { title: "3.5 Case study: Data processing (BigQuery, Dataflow)", pdfPage: 62 },
+          { title: "3.6 WSC workload tradeoffs & infrastructure", pdfPage: 65 },
+          { title: "3.7 Some recurring themes", pdfPage: 71 }
+        ]
+      },
+      {
+        title: "4. WSC Software: Distributed Systems Infrastructure",
+        pdfPage: 77,
+        items: [
+          { title: "4.1 Overview of the software stack", pdfPage: 77 },
+          { title: "4.2 Distributed systems (Borg, Colossus, Spanner, WAN)", pdfPage: 77 },
+          { title: "4.3 Infrastructure management & SRE", pdfPage: 88 },
+          { title: "4.4 Server-level software", pdfPage: 94 }
+        ]
+      },
+      {
+        title: "5. WSC Hardware: Data Center Infrastructure",
+        pdfPage: 100,
+        items: [
+          { title: "5.1 Data center infrastructure basics", pdfPage: 100 },
+          { title: "5.2 Data center power systems", pdfPage: 105 },
+          { title: "5.3 Data center cooling systems", pdfPage: 114 },
+          { title: "5.4 Modular design, Five Envelopes & Automation", pdfPage: 127 },
+          { title: "5.5 Historical retrospective", pdfPage: 132 }
+        ]
+      },
+      {
+        title: "6. WSC Hardware: Computing Building Blocks",
+        pdfPage: 137,
+        items: [
+          { title: "6.1 WSC building blocks & scale-out models", pdfPage: 137 },
+          { title: "6.2 Computing: servers and racks", pdfPage: 143 },
+          { title: "6.3 Accelerators & custom silicon (TPUs, VCUs)", pdfPage: 153 },
+          { title: "6.4 Networking (Jupiter, OCS)", pdfPage: 163 },
+          { title: "6.5 Storage", pdfPage: 173 }
+        ]
+      },
+      { title: "7. Software-Defined Infrastructure", pdfPage: 187 },
+      { title: "8. Performance and Costs", pdfPage: 213 },
+      { title: "9. Energy and Sustainability", pdfPage: 233 },
+      { title: "10. Trusted Computing: Reliability, Availability, Security", pdfPage: 289 },
+      { title: "11. A Twenty Five Year WSC Journey", pdfPage: 329 },
+      { title: "12. A Selection of 25 Top Papers for 25 Years of WSC", pdfPage: 349 },
+      { title: "Glossary", pdfPage: 363 }
+    ];
+
+    // Application State
+    let pdfDoc = null;
+    let pageFlip = null;
+    let totalPages = 0;
+    let currentPage = 1;
+    let currentZoom = 1.0;
+    let isSinglePageMode = false;
+    let basePageWidth = 520;
+    let basePageHeight = 720;
+    const renderedPages = new Set();
+    const renderingTasks = new Map();
+
+    // DOM Elements
+    const pdfUploadInput = document.getElementById("pdfUploadInput");
+    const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");
+    const sidebar = document.getElementById("sidebar");
+    const bookTitle = document.getElementById("bookTitle");
+    const firstPageBtn = document.getElementById("firstPageBtn");
+    const prevPageBtn = document.getElementById("prevPageBtn");
+    const nextPageBtn = document.getElementById("nextPageBtn");
+    const lastPageBtn = document.getElementById("lastPageBtn");
+    const floatPrevBtn = document.getElementById("floatPrevBtn");
+    const floatNextBtn = document.getElementById("floatNextBtn");
+    const pageIndicator = document.getElementById("pageIndicator");
+    const viewModeBtn = document.getElementById("viewModeBtn");
+    const viewModeLabel = document.getElementById("viewModeLabel");
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    const zoomInBtn = document.getElementById("zoomInBtn");
+    const zoomBadge = document.getElementById("zoomBadge");
+    const fullscreenBtn = document.getElementById("fullscreenBtn");
+    const pageJumpInput = document.getElementById("pageJumpInput");
+    const pageJumpBtn = document.getElementById("pageJumpBtn");
+    const tocList = document.getElementById("tocList");
+    const tocBadge = document.getElementById("tocBadge");
+    const emptyState = document.getElementById("emptyState");
+    const stage = document.getElementById("stage");
+    const zoomWrapper = document.getElementById("zoomWrapper");
+    const flipbookEl = document.getElementById("flipbook");
+
+    // Initialize fallback TOC preview immediately
+    renderTOCItems(DAAC_4TH_EDITION_TOC, tocList);
+
+    // Sidebar Toggle
+    toggleSidebarBtn.addEventListener("click", () => {
+      sidebar.classList.toggle("collapsed");
+    });
+
+    // File Upload Handler
+    pdfUploadInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (file) loadLocalPDFFile(file);
+    });
+
+    // Drag and Drop Support
+    window.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      emptyState.classList.add("dragover");
+    });
+
+    window.addEventListener("dragleave", () => {
+      emptyState.classList.remove("dragover");
+    });
+
+    window.addEventListener("drop", (e) => {
+      e.preventDefault();
+      emptyState.classList.remove("dragover");
+      const file = e.dataTransfer.files[0];
+      if (file && file.type === "application/pdf") {
+        loadLocalPDFFile(file);
+      }
+    });
+
+    /**
+     * Reads a local PDF file into an ArrayBuffer and initializes PDF.js + StPageFlip
+     */
+    async function loadLocalPDFFile(file) {
+      try {
+        bookTitle.textContent = file.name.replace(/\.pdf$/i, "");
+        pageIndicator.textContent = "Loading PDF...";
+
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        pdfDoc = await loadingTask.promise;
+        totalPages = pdfDoc.numPages;
+        currentPage = 1;
+
+        // Calculate exact page aspect ratio from Page 1
+        const firstPage = await pdfDoc.getPage(1);
+        const viewport = firstPage.getViewport({ scale: 1 });
+        const aspectRatio = viewport.width / viewport.height;
+
+        const availableHeight = Math.max(460, stage.clientHeight - 64);
+        basePageHeight = Math.min(820, availableHeight);
+        basePageWidth = Math.round(basePageHeight * aspectRatio);
+
+        // Hide empty state and build flipbook
+        emptyState.style.display = "none";
+        flipbookEl.style.display = "block";
+
+        await buildFlipbookInstance();
+        await extractAndRenderOutline();
+        enableToolbarControls();
+      } catch (err) {
+        console.error("Failed to load PDF:", err);
+        alert("Error loading PDF file: " + err.message);
+      }
+    }
+
+    /**
+     * Builds or rebuilds the StPageFlip 3D Flipbook DOM and instance
+     */
+    async function buildFlipbookInstance() {
+      // Cancel any in-flight render tasks
+      renderingTasks.forEach((task) => {
+        if (task && task.cancel) task.cancel();
+      });
+      renderingTasks.clear();
+      renderedPages.clear();
+
+      if (pageFlip) {
+        pageFlip.destroy();
+        pageFlip = null;
+      }
+
+      // Recreate clean mount element
+      zoomWrapper.innerHTML = '<div id="flipbook"></div>';
+      const newFlipbookEl = document.getElementById("flipbook");
+
+      // Create page containers for every page in the PDF
+      const fragment = document.createDocumentFragment();
+      for (let i = 1; i <= totalPages; i++) {
+        const pageDiv = document.createElement("div");
+        pageDiv.className = "page";
+        pageDiv.dataset.pageNumber = i;
+        // Make front and back covers rigid hardcovers in 2-page spread mode
+        if (!isSinglePageMode && (i === 1 || i === totalPages)) {
+          pageDiv.dataset.density = "hard";
+        } else {
+          pageDiv.dataset.density = "soft";
+        }
+
+        pageDiv.innerHTML = `
+          <div class="page-loading" id="loader-${i}">
+            <div class="spinner"></div>
+            <span>Page ${i}</span>
+          </div>
+          <canvas class="page-canvas" id="canvas-${i}"></canvas>
+        `;
+        fragment.appendChild(pageDiv);
+      }
+      newFlipbookEl.appendChild(fragment);
+
+      // Initialize StPageFlip
+      pageFlip = new St.PageFlip(newFlipbookEl, {
+        width: basePageWidth,
+        height: basePageHeight,
+        size: "fixed",
+        minWidth: 280,
+        maxWidth: 1200,
+        minHeight: 380,
+        maxHeight: 1600,
+        maxShadowOpacity: 0.55,
+        showCover: !isSinglePageMode,
+        usePortrait: isSinglePageMode,
+        mobileScrollSupport: false,
+        drawShadow: true,
+        flippingTime: 650,
+        swipeDistance: 30,
+        showPageCorners: true,
+        disableFlipByClick: false
+      });
+
+      pageFlip.loadFromHTML(newFlipbookEl.querySelectorAll(".page"));
+
+      // Turn to previously active page if switching between Single/Double view
+      if (currentPage > 1) {
+        pageFlip.turnToPage(currentPage - 1);
+      }
+
+      // Listen to page flip events
+      pageFlip.on("flip", (e) => {
+        currentPage = e.data + 1;
+        updateNavigationUI();
+        renderVisibleNeighborhood(currentPage);
+      });
+
+      updateNavigationUI();
+      await renderVisibleNeighborhood(currentPage);
+    }
+
+    /**
+     * Lazily renders the current page and surrounding pages at high DPI onto their canvases
+     * while freeing far-away canvases so even 350+ page books stay fast and memory-light.
+     */
+    async function renderVisibleNeighborhood(centerPage) {
+      if (!pdfDoc) return;
+
+      const radius = 4; // Pre-render 4 pages ahead and behind
+      const startPage = Math.max(1, centerPage - radius);
+      const endPage = Math.min(totalPages, centerPage + radius);
+
+      // Free memory for pages far outside the active window
+      for (const pageNum of Array.from(renderedPages)) {
+        if (Math.abs(pageNum - centerPage) > 12) {
+          const canvas = document.getElementById(`canvas-${pageNum}`);
+          const loader = document.getElementById(`loader-${pageNum}`);
+          if (canvas) {
+            canvas.width = 1;
+            canvas.height = 1;
+          }
+          if (loader) loader.style.display = "flex";
+          renderedPages.delete(pageNum);
+        }
+      }
+
+      // Render active range
+      for (let p = startPage; p <= endPage; p++) {
+        if (!renderedPages.has(p) && !renderingTasks.has(p)) {
+          renderSinglePDFPage(p);
+        }
+      }
+    }
+
+    /**
+     * Renders an individual PDF page onto its corresponding <canvas> element
+     */
+    async function renderSinglePDFPage(pageNumber) {
+      if (!pdfDoc || renderedPages.has(pageNumber)) return;
+
+      const canvas = document.getElementById(`canvas-${pageNumber}`);
+      const loader = document.getElementById(`loader-${pageNumber}`);
+      if (!canvas) return;
+
+      try {
+        renderingTasks.set(pageNumber, true);
+        const page = await pdfDoc.getPage(pageNumber);
+
+        // Render at high pixel density for crisp typography & diagrams
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
+        const unscaledViewport = page.getViewport({ scale: 1 });
+        const scale = (basePageWidth / unscaledViewport.width) * dpr;
+        const viewport = page.getViewport({ scale });
+
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        const ctx = canvas.getContext("2d", { alpha: false });
+        const renderTask = page.render({
+          canvasContext: ctx,
+          viewport: viewport
+        });
+
+        renderingTasks.set(pageNumber, renderTask);
+        await renderTask.promise;
+
+        renderedPages.add(pageNumber);
+        renderingTasks.delete(pageNumber);
+        if (loader) loader.style.display = "none";
+      } catch (err) {
+        renderingTasks.delete(pageNumber);
+        if (err && err.name !== "RenderingCancelledException") {
+          console.warn(`Error rendering page ${pageNumber}:`, err);
+        }
+      }
+    }
+
+    /**
+     * Extracts bookmarks/outline directly from the PDF document.
+     * Falls back to the built-in DaaC 4th Edition TOC if the PDF has no embedded outline.
+     */
+    async function extractAndRenderOutline() {
+      tocList.innerHTML = "";
+      if (!pdfDoc) return;
+
+      try {
+        const outline = await pdfDoc.getOutline();
+        if (outline && outline.length > 0) {
+          tocBadge.textContent = "PDF Bookmarks";
+          const parsedOutline = await resolveOutlineTree(outline);
+          renderTOCItems(parsedOutline, tocList);
+        } else {
+          tocBadge.textContent = "Book TOC";
+          renderTOCItems(DAAC_4TH_EDITION_TOC, tocList);
+        }
+      } catch (err) {
+        console.warn("Could not extract PDF outline, using fallback TOC:", err);
+        renderTOCItems(DAAC_4TH_EDITION_TOC, tocList);
+      }
+    }
+
+    /**
+     * Recursively resolves PDF.js outline destination references to 1-based page numbers
+     */
+    async function resolveOutlineTree(outlineNodes) {
+      const result = [];
+      for (const node of outlineNodes) {
+        let pdfPage = null;
+        try {
+          let dest = node.dest;
+          if (typeof dest === "string") {
+            dest = await pdfDoc.getDestination(dest);
+          }
+          if (Array.isArray(dest) && dest[0]) {
+            const pageIndex = await pdfDoc.getPageIndex(dest[0]);
+            pdfPage = pageIndex + 1;
+          }
+        } catch (e) {
+          // Ignore unresolvable bookmark links
+        }
+
+        const children =
+          node.items && node.items.length > 0
+            ? await resolveOutlineTree(node.items)
+            : [];
+
+        result.push({
+          title: node.title || "Untitled Section",
+          pdfPage,
+          items: children
+        });
+      }
+      return result;
+    }
+
+    /**
+     * Renders hierarchical TOC items into the sidebar
+     */
+    function renderTOCItems(items, parentUl) {
+      items.forEach((item) => {
+        const li = document.createElement("li");
+
+        const row = document.createElement("div");
+        row.className = "toc-item";
+        if (item.pdfPage) row.dataset.page = item.pdfPage;
+
+        const titleSpan = document.createElement("span");
+        titleSpan.textContent = item.title;
+
+        const pageSpan = document.createElement("span");
+        pageSpan.className = "toc-page-num";
+        pageSpan.textContent = item.pdfPage ? `p. ${item.pdfPage}` : "";
+
+        row.appendChild(titleSpan);
+        row.appendChild(pageSpan);
+
+        row.addEventListener("click", () => {
+          if (!pdfDoc) {
+            alert("Please click 'Open PDF' first to load your PDF document.");
+            return;
+          }
+          if (item.pdfPage) {
+            jumpToPage(item.pdfPage);
+          }
+        });
+
+        li.appendChild(row);
+
+        if (item.items && item.items.length > 0) {
+          const nestedUl = document.createElement("ul");
+          nestedUl.className = "toc-nested";
+          renderTOCItems(item.items, nestedUl);
+          li.appendChild(nestedUl);
+        }
+
+        parentUl.appendChild(li);
+      });
+    }
+
+    /**
+     * Turns the flipbook to a specific 1-based PDF page number
+     */
+    function jumpToPage(targetPage) {
+      if (!pageFlip || !pdfDoc) return;
+      const clampedPage = Math.max(1, Math.min(totalPages, parseInt(targetPage, 10)));
+      if (isNaN(clampedPage)) return;
+
+      pageFlip.flip(clampedPage - 1);
+    }
+
+    /**
+     * Updates toolbar buttons, page counter, and active TOC item highlight
+     */
+    function updateNavigationUI() {
+      if (!pdfDoc) return;
+
+      // Determine spread label
+      if (!isSinglePageMode && currentPage > 1 && currentPage < totalPages) {
+        const leftPage = currentPage % 2 === 0 ? currentPage : currentPage - 1;
+        const rightPage = Math.min(totalPages, leftPage + 1);
+        pageIndicator.textContent = `Pages ${leftPage}–${rightPage} of ${totalPages}`;
+      } else {
+        pageIndicator.textContent = `Page ${currentPage} of ${totalPages}`;
+      }
+
+      pageJumpInput.value = currentPage;
+
+      const atStart = currentPage <= 1;
+      const atEnd = currentPage >= totalPages;
+
+      firstPageBtn.disabled = atStart;
+      prevPageBtn.disabled = atStart;
+      floatPrevBtn.disabled = atStart;
+      nextPageBtn.disabled = atEnd;
+      lastPageBtn.disabled = atEnd;
+      floatNextBtn.disabled = atEnd;
+
+      // Highlight nearest TOC item
+      const allTocRows = tocList.querySelectorAll(".toc-item");
+      let activeRow = null;
+      allTocRows.forEach((row) => {
+        row.classList.remove("active");
+        const p = parseInt(row.dataset.page, 10);
+        if (!isNaN(p) && p <= currentPage) {
+          activeRow = row;
+        }
+      });
+      if (activeRow) {
+        activeRow.classList.add("active");
+      }
+    }
+
+    function enableToolbarControls() {
+      viewModeBtn.disabled = false;
+      zoomInBtn.disabled = false;
+      zoomOutBtn.disabled = false;
+      pageJumpInput.disabled = false;
+      pageJumpInput.max = totalPages;
+      pageJumpBtn.disabled = false;
+    }
+
+    // Navigation Button Listeners
+    firstPageBtn.addEventListener("click", () => pageFlip && pageFlip.turnToPage(0));
+    prevPageBtn.addEventListener("click", () => pageFlip && pageFlip.flipPrev());
+    floatPrevBtn.addEventListener("click", () => pageFlip && pageFlip.flipPrev());
+    nextPageBtn.addEventListener("click", () => pageFlip && pageFlip.flipNext());
+    floatNextBtn.addEventListener("click", () => pageFlip && pageFlip.flipNext());
+    lastPageBtn.addEventListener("click", () => pageFlip && pageFlip.turnToPage(totalPages - 1));
+
+    // Page Jump Input Listeners
+    pageJumpBtn.addEventListener("click", () => jumpToPage(pageJumpInput.value));
+    pageJumpInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") jumpToPage(pageJumpInput.value);
+    });
+
+    // Single / Double Page Spread Toggle
+    viewModeBtn.addEventListener("click", async () => {
+      if (!pdfDoc) return;
+      isSinglePageMode = !isSinglePageMode;
+      viewModeBtn.classList.toggle("btn-active", isSinglePageMode);
+      viewModeLabel.textContent = isSinglePageMode ? "📄 1-Page View" : "📖 2-Page Spread";
+      await buildFlipbookInstance();
+    });
+
+    // Zoom Controls
+    function applyZoom(newZoom) {
+      currentZoom = Math.max(0.6, Math.min(2.2, Math.round(newZoom * 100) / 100));
+      zoomWrapper.style.transform = `scale(${currentZoom})`;
+      zoomBadge.textContent = `${Math.round(currentZoom * 100)}%`;
+    }
+
+    zoomInBtn.addEventListener("click", () => applyZoom(currentZoom + 0.15));
+    zoomOutBtn.addEventListener("click", () => applyZoom(currentZoom - 0.15));
+
+    // Fullscreen Toggle
+    fullscreenBtn.addEventListener("click", () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    });
+
+    // Keyboard Navigation (Left/Right Arrows, Home/End, +/- Zoom)
+    window.addEventListener("keydown", (e) => {
+      if (document.activeElement === pageJumpInput) return;
+      if (!pageFlip) return;
+
+      if (e.key === "ArrowRight" || e.key === "PageDown") {
+        e.preventDefault();
+        pageFlip.flipNext();
+      } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+        e.preventDefault();
+        pageFlip.flipPrev();
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        pageFlip.turnToPage(0);
+      } else if (e.key === "End") {
+        e.preventDefault();
+        pageFlip.turnToPage(totalPages - 1);
+      } else if (e.key === "+" || e.key === "=") {
+        applyZoom(currentZoom + 0.15);
+      } else if (e.key === "-") {
+        applyZoom(currentZoom - 0.15);
+      } else if (e.key.toLowerCase() === "t") {
+        sidebar.classList.toggle("collapsed");
+      } else if (e.key.toLowerCase() === "f") {
+        fullscreenBtn.click();
+      }
+    });
+  </script>
+</body>
+</html>
