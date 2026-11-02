@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="WSC Flipbook" />
+  <title>The Data Center as a Computer - 3D Flipbook</title>
+
+  <!-- PDF.js v2.16.105 CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <!-- StPageFlip (page-flip.browser.js) CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --bg-panel: #1e293b;
+      --bg-hover: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --border: #334155;
+      --toolbar-height: 56px;
+      --sidebar-width: 300px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      height: 100dvh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Top Toolbar */
+    .toolbar {
+      height: var(--toolbar-height);
+      background-color: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      z-index: 30;
+      gap: 8px;
+      overflow-x: auto;
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .brand-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 220px;
+      margin-left: 4px;
+    }
+
+    .btn {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn:hover:not(:disabled) {
+      background-color: var(--bg-hover);
+      border-color: var(--text-muted);
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background-color: var(--accent);
+      color: #0f172a;
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+
+    .btn-active {
+      background-color: rgba(56, 189, 248, 0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .page-indicator {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      min-width: 105px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .zoom-badge {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      min-width: 44px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Main Workspace Layout */
+    .workspace {
+      display: flex;
+      flex: 1;
+      height: calc(100dvh - var(--toolbar-height));
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Left Collapsible Sidebar (TOC + Page Jump) */
+    .sidebar {
+      width: var(--sidebar-width);
+      background-color: var(--bg-panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 25;
+      flex-shrink: 0;
+    }
+
+    .sidebar.collapsed {
+      margin-left: calc(var(--sidebar-width) * -1);
+    }
+
+    .sidebar-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sidebar-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .jump-box {
+      display: flex;
+      gap: 6px;
+    }
+
+    .jump-input {
+      flex: 1;
+      background-color: var(--bg-dark);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    .toc-container {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 8px;
+    }
+
+    .toc-list {
+      list-style: none;
+    }
+
+    .toc-nested {
+      list-style: none;
+      padding-left: 12px;
+      border-left: 1px solid var(--border);
+      margin-left: 6px;
+    }
+
+    .toc-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 8px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.84rem;
+      color: var(--text-main);
+      gap: 8px;
+      line-height: 1.35;
+    }
+
+    .toc-item:hover {
+      background-color: var(--bg-hover);
+      color: var(--accent);
+    }
+
+    .toc-item.active {
+      background-color: rgba(56, 189, 248, 0.14);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .toc-page-num {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Main Flipbook Stage */
+    .stage {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+      padding: 16px;
+    }
+
+    .zoom-wrapper {
+      transform-origin: center center;
+      transition: transform 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #flipbook {
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.65);
+    }
+
+    .page {
+      background-color: #ffffff;
+      overflow: hidden;
+      position: relative;
+      box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.08);
+    }
+
+    .page.--left::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 24px;
+      background: linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,0.18));
+      pointer-events: none;
+    }
+
+    .page.--right::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 24px;
+      background: linear-gradient(to left, rgba(0,0,0,0), rgba(0,0,0,0.18));
+      pointer-events: none;
+    }
+
+    .page-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background-color: #ffffff;
+    }
+
+    .page-loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-size: 0.85rem;
+      background: #ffffff;
+      z-index: 1;
+      gap: 8px;
+    }
+
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid #e2e8f0;
+      border-top-color: #0284c7;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Status / Upload Overlay */
+    .empty-state {
+      max-width: 440px;
+      text-align: center;
+      background-color: rgba(30, 41, 59, 0.9);
+      border: 2px dashed var(--border);
+      border-radius: 16px;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      backdrop-filter: blur(8px);
+      z-index: 10;
+    }
+
+    .progress-bar-wrap {
+      width: 100%;
+      height: 6px;
+      background: var(--bg-dark);
+      border-radius: 4px;
+      overflow: hidden;
+      display: none;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 0.2s ease;
+    }
+
+    /* Floating Side Navigation Arrows */
+    .floating-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background-color: rgba(15, 23, 42, 0.75);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 15;
+    }
+
+    .floating-nav:disabled {
+      opacity: 0.2;
+      cursor: default;
+    }
+
+    .floating-prev { left: 12px; }
+    .floating-next { right: 12px; }
+
+    /* Responsive adjustments for iPad Portrait & iPhone */
+    @media (max-width: 900px) {
+      .brand-title { display: none; }
+      .sidebar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        box-shadow: 10px 0 30px rgba(0,0,0,0.5);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Toolbar -->
+  <header class="toolbar">
+    <div class="toolbar-group">
+      <button id="toggleSidebarBtn" class="btn" title="Toggle Table of Contents">
+        ☰ TOC
+      </button>
+
+      <label for="pdfUploadInput" class="btn btn-primary" title="Load Local PDF File">
+        📂 Open PDF
+      </label>
+      <input type="file" id="pdfUploadInput" accept="application/pdf,.pdf" />
+
+      <span id="bookTitle" class="brand-title">The Data Center as a Computer (4th Ed.)</span>
+    </div>
+
+    <!-- Page Navigation Controls -->
+    <div class="toolbar-group">
+      <button id="firstPageBtn" class="btn" disabled>⏮</button>
+      <button id="prevPageBtn" class="btn" disabled>◀</button>
+      <span id="pageIndicator" class="page-indicator">Checking PDF...</span>
+      <button id="nextPageBtn" class="btn" disabled>▶</button>
+      <button id="lastPageBtn" class="btn" disabled>⏭</button>
+    </div>
+
+    <!-- View Mode, Zoom & Fullscreen Controls -->
+    <div class="toolbar-group">
+      <button id="viewModeBtn" class="btn" disabled>
+        <span id="viewModeLabel">📖 2-Page</span>
+      </button>
+      <button id="zoomOutBtn" class="btn" disabled>−</button>
+      <span id="zoomBadge" class="zoom-badge">100%</span>
+      <button id="zoomInBtn" class="btn" disabled>+</button>
+      <button id="fullscreenBtn" class="btn" title="Fullscreen">⛶</button>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <div class="workspace">
+    <!-- Left Collapsible Sidebar -->
+    <aside id="sidebar" class="sidebar collapsed">
+      <div class="sidebar-header">
+        <div class="sidebar-title">
+          <span>Table of Contents</span>
+          <span id="tocBadge" style="font-size:0.7rem;">Book TOC</span>
+        </div>
+        <div class="jump-box">
+          <input type="number" id="pageJumpInput" class="jump-input" placeholder="PDF Page #" min="1" disabled />
+          <button id="pageJumpBtn" class="btn" disabled>Go</button>
+        </div>
+      </div>
+      <div id="tocContainer" class="toc-container">
+        <ul id="tocList" class="toc-list"></ul>
+      </div>
+    </aside>
+
+    <!-- Main Flipbook Stage -->
+    <main id="stage" class="stage">
+      <button id="floatPrevBtn" class="floating-nav floating-prev" disabled>&#10094;</button>
+
+      <!-- Initial Auto-Load / Fallback Upload State -->
+      <div id="emptyState" class="empty-state">
+        <h2 id="statusHeading">Loading E-Book...</h2>
+        <p id="statusSubtext" style="font-size: 0.88rem; color: var(--text-muted); line-height: 1.45;">
+          Attempting to auto-load <code>book.pdf</code> from your GitHub Pages repository...
+        </p>
+        <div id="progressBarWrap" class="progress-bar-wrap">
+          <div id="progressBarFill" class="progress-bar-fill"></div>
+        </div>
+        <label for="pdfUploadInput" class="btn btn-primary" style="padding: 10px 16px; font-size: 0.9rem;">
+          Or Choose PDF from Device / Files App
+        </label>
+      </div>
+
+      <!-- Zoom Wrapper & Flipbook Mount -->
+      <div id="zoomWrapper" class="zoom-wrapper">
+        <div id="flipbook"></div>
+      </div>
+
+      <button id="floatNextBtn" class="floating-nav floating-next" disabled>&#10095;</button>
+    </main>
+  </div>
+
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+
+    // Candidate filenames to auto-fetch from the same GitHub Pages folder
+    const AUTO_LOAD_CANDIDATES = [
+      "./book.pdf",
+      "./Final 4th Edition Springer DaaC book (1).pdf",
+      "./Final 4th Edition Springer DaaC book.pdf"
+    ];
+
+    const DAAC_4TH_EDITION_TOC = [
+      { title: "Front Cover & Title", pdfPage: 1 },
+      { title: "Foreword", pdfPage: 7 },
+      { title: "Preface", pdfPage: 8 },
+      { title: "Abstract", pdfPage: 12 },
+      { title: "Contents", pdfPage: 13 },
+      { title: "List of Figures", pdfPage: 21 },
+      {
+        title: "1. Introduction",
+        pdfPage: 25,
+        items: [
+          { title: "1.1 Setting the context", pdfPage: 25 },
+          { title: "1.2 Warehouse-Scale Computers (WSCs)", pdfPage: 26 },
+          { title: "1.3 Cost efficiency at scale", pdfPage: 28 },
+          { title: "1.4 Why WSCs might matter to you", pdfPage: 29 },
+          { title: "1.5 Overview of the book", pdfPage: 30 },
+          { title: "1.6 What is new in the fourth edition", pdfPage: 30 }
+        ]
+      },
+      {
+        title: "2. Overview of WSC Architecture",
+        pdfPage: 32,
+        items: [
+          { title: "2.1 Regions and zones", pdfPage: 32 },
+          { title: "2.2 Buildings and Infrastructure", pdfPage: 34 },
+          { title: "2.3 Servers", pdfPage: 36 },
+          { title: "2.4 Storage", pdfPage: 37 },
+          { title: "2.5 Networking Fabric", pdfPage: 39 },
+          { title: "2.6 Energy Usage", pdfPage: 40 },
+          { title: "2.7 Handling Failures and Repairs", pdfPage: 40 }
+        ]
+      },
+      {
+        title: "3. Overview of WSC Workloads",
+        pdfPage: 42,
+        items: [
+          { title: "3.1 WSC workloads", pdfPage: 42 },
+          { title: "3.2 Hyperscale applications", pdfPage: 46 },
+          { title: "3.3 AI workloads", pdfPage: 53 },
+          { title: "3.4 Case study: Google Compute Engine", pdfPage: 58 },
+          { title: "3.5 Case study: Data processing", pdfPage: 62 },
+          { title: "3.6 WSC workload tradeoffs", pdfPage: 65 },
+          { title: "3.7 Some recurring themes", pdfPage: 71 }
+        ]
+      },
+      {
+        title: "4. WSC Software: Distributed Systems",
+        pdfPage: 77,
+        items: [
+          { title: "4.1 Overview of the software stack", pdfPage: 77 },
+          { title: "4.2 Distributed systems", pdfPage: 77 },
+          { title: "4.3 Infrastructure management", pdfPage: 88 },
+          { title: "4.4 Server-level software", pdfPage: 94 }
+        ]
+      },
+      {
+        title: "5. WSC Hardware: Data Center Infrastructure",
+        pdfPage: 100,
+        items: [
+          { title: "5.1 Data center infrastructure basics", pdfPage: 100 },
+          { title: "5.2 Data center power systems", pdfPage: 105 },
+          { title: "5.3 Data center cooling systems", pdfPage: 114 },
+          { title: "5.4 Other data center considerations", pdfPage: 127 },
+          { title: "5.5 Historical retrospective", pdfPage: 132 }
+        ]
+      },
+      {
+        title: "6. WSC Hardware: Computing Building Blocks",
+        pdfPage: 137,
+        items: [
+          { title: "6.1 WSC building blocks & design", pdfPage: 137 },
+          { title: "6.2 Computing: servers and racks", pdfPage: 143 },
+          { title: "6.3 Accelerators and custom silicon", pdfPage: 153 },
+          { title: "6.4 Networking", pdfPage: 163 },
+          { title: "6.5 Storage", pdfPage: 173 }
+        ]
+      },
+      { title: "7. Software-Defined Infrastructure", pdfPage: 187 },
+      { title: "8. Performance and Costs", pdfPage: 213 },
+      { title: "9. Energy and Sustainability", pdfPage: 233 },
+      { title: "10. Trusted Computing", pdfPage: 289 },
+      { title: "11. A Twenty Five Year WSC Journey", pdfPage: 329 },
+      { title: "12. A Selection of 25 Top Papers", pdfPage: 349 },
+      { title: "Glossary", pdfPage: 363 }
+    ];
+
+    let pdfDoc = null;
+    let pageFlip = null;
+    let totalPages = 0;
+    let currentPage = parseInt(localStorage.getItem("wsc_last_page") || "1", 10);
+    let currentZoom = 1.0;
+    let isSinglePageMode = window.innerWidth < window.innerHeight;
+    let basePageWidth = 480;
+    let basePageHeight = 680;
+    const renderedPages = new Set();
+    const renderingTasks = new Map();
+
+    // DOM Elements
+    const pdfUploadInput = document.getElementById("pdfUploadInput");
+    const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");
+    const sidebar = document.getElementById("sidebar");
+    const bookTitle = document.getElementById("bookTitle");
+    const firstPageBtn = document.getElementById("firstPageBtn");
+    const prevPageBtn = document.getElementById("prevPageBtn");
+    const nextPageBtn = document.getElementById("nextPageBtn");
+    const lastPageBtn = document.getElementById("lastPageBtn");
+    const floatPrevBtn = document.getElementById("floatPrevBtn");
+    const floatNextBtn = document.getElementById("floatNextBtn");
+    const pageIndicator = document.getElementById("pageIndicator");
+    const viewModeBtn = document.getElementById("viewModeBtn");
+    const viewModeLabel = document.getElementById("viewModeLabel");
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    const zoomInBtn = document.getElementById("zoomInBtn");
+    const zoomBadge = document.getElementById("zoomBadge");
+    const fullscreenBtn = document.getElementById("fullscreenBtn");
+    const pageJumpInput = document.getElementById("pageJumpInput");
+    const pageJumpBtn = document.getElementById("pageJumpBtn");
+    const tocList = document.getElementById("tocList");
+    const tocBadge = document.getElementById("tocBadge");
+    const emptyState = document.getElementById("emptyState");
+    const statusHeading = document.getElementById("statusHeading");
+    const statusSubtext = document.getElementById("statusSubtext");
+    const progressBarWrap = document.getElementById("progressBarWrap");
+    const progressBarFill = document.getElementById("progressBarFill");
+    const stage = document.getElementById("stage");
+    const zoomWrapper = document.getElementById("zoomWrapper");
+
+    // Initialize TOC and desktop sidebar state
+    renderTOCItems(DAAC_4TH_EDITION_TOC, tocList);
+    if (window.innerWidth > 900) {
+      sidebar.classList.remove("collapsed");
+    }
+
+    toggleSidebarBtn.addEventListener("click", () => {
+      sidebar.classList.toggle("collapsed");
+    });
+
+    pdfUploadInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        bookTitle.textContent = file.name.replace(/\.pdf$/i, "");
+        const arrayBuffer = await file.arrayBuffer();
+        await initPDFFromSource({ data: arrayBuffer });
+      }
+    });
+
+    // Try auto-loading book.pdf on startup
+    window.addEventListener("DOMContentLoaded", async () => {
+      for (const url of AUTO_LOAD_CANDIDATES) {
+        try {
+          const headRes = await fetch(url, { method: "HEAD" });
+          if (headRes.ok) {
+            progressBarWrap.style.display = "block";
+            statusHeading.textContent = "Downloading E-Book...";
+            await initPDFFromSource({ url });
+            return;
+          }
+        } catch (e) {
+          // Continue to next candidate or manual upload
+        }
+      }
+      // If no hosted PDF found in folder, prompt user to pick from Files
+      statusHeading.textContent = "Ready to Open PDF";
+      statusSubtext.innerHTML =
+        "Tap <strong>Open PDF</strong> to pick a PDF from your iPad/iPhone Files app, or place <code>book.pdf</code> in your GitHub repository to auto-load it.";
+      pageIndicator.textContent = "No PDF Loaded";
+    });
+
+    async function initPDFFromSource(sourceConfig) {
+      try {
+        const loadingTask = pdfjsLib.getDocument(sourceConfig);
+        loadingTask.onProgress = (progress) => {
+          if (progress.total > 0) {
+            const pct = Math.min(100, Math.round((progress.loaded / progress.total) * 100));
+            progressBarFill.style.width = pct + "%";
+            pageIndicator.textContent = `Loading ${pct}%`;
+          }
+        };
+
+        pdfDoc = await loadingTask.promise;
+        totalPages = pdfDoc.numPages;
+        if (currentPage > totalPages || currentPage < 1) currentPage = 1;
+
+        emptyState.style.display = "none";
+        await calculateDimensionsAndBuild();
+        await extractAndRenderOutline();
+        enableToolbarControls();
+      } catch (err) {
+        console.error("Error initializing PDF:", err);
+        statusHeading.textContent = "Select a PDF File";
+        statusSubtext.textContent = "Tap the button below to load your PDF directly from your device.";
+      }
+    }
+
+    async function calculateDimensionsAndBuild() {
+      if (!pdfDoc) return;
+      const firstPage = await pdfDoc.getPage(1);
+      const viewport = firstPage.getViewport({ scale: 1 });
+      const aspectRatio = viewport.width / viewport.height;
+
+      const padW = window.innerWidth < 600 ? 24 : 72;
+      const padH = window.innerHeight < 600 ? 24 : 48;
+      const availW = stage.clientWidth - padW;
+      const availH = stage.clientHeight - padH;
+
+      if (isSinglePageMode) {
+        basePageHeight = Math.min(availH, Math.round(availW / aspectRatio));
+        basePageWidth = Math.round(basePageHeight * aspectRatio);
+      } else {
+        basePageHeight = Math.min(availH, Math.round((availW / 2) / aspectRatio));
+        basePageWidth = Math.round(basePageHeight * aspectRatio);
+      }
+
+      viewModeBtn.classList.toggle("btn-active", isSinglePageMode);
+      viewModeLabel.textContent = isSinglePageMode ? "📄 1-Page" : "📖 2-Page";
+
+      await buildFlipbookInstance();
+    }
+
+    async function buildFlipbookInstance() {
+      renderingTasks.forEach((task) => task && task.cancel && task.cancel());
+      renderingTasks.clear();
+      renderedPages.clear();
+
+      if (pageFlip) {
+        pageFlip.destroy();
+        pageFlip = null;
+      }
+
+      zoomWrapper.innerHTML = '<div id="flipbook"></div>';
+      const newFlipbookEl = document.getElementById("flipbook");
+
+      const fragment = document.createDocumentFragment();
+      for (let i = 1; i <= totalPages; i++) {
+        const pageDiv = document.createElement("div");
+        pageDiv.className = "page";
+        pageDiv.dataset.pageNumber = i;
+        pageDiv.dataset.density = !isSinglePageMode && (i === 1 || i === totalPages) ? "hard" : "soft";
+        pageDiv.innerHTML = `
+          <div class="page-loading" id="loader-${i}">
+            <div class="spinner"></div>
+            <span>Page ${i}</span>
+          </div>
+          <canvas class="page-canvas" id="canvas-${i}"></canvas>
+        `;
+        fragment.appendChild(pageDiv);
+      }
+      newFlipbookEl.appendChild(fragment);
+
+      pageFlip = new St.PageFlip(newFlipbookEl, {
+        width: basePageWidth,
+        height: basePageHeight,
+        size: "fixed",
+        maxShadowOpacity: 0.5,
+        showCover: !isSinglePageMode,
+        usePortrait: isSinglePageMode,
+        mobileScrollSupport: false,
+        drawShadow: true,
+        flippingTime: 600,
+        swipeDistance: 20,
+        showPageCorners: true
+      });
+
+      pageFlip.loadFromHTML(newFlipbookEl.querySelectorAll(".page"));
+
+      if (currentPage > 1) {
+        pageFlip.turnToPage(currentPage - 1);
+      }
+
+      pageFlip.on("flip", (e) => {
+        currentPage = e.data + 1;
+        localStorage.setItem("wsc_last_page", String(currentPage));
+        updateNavigationUI();
+        renderVisibleNeighborhood(currentPage);
+      });
+
+      updateNavigationUI();
+      await renderVisibleNeighborhood(currentPage);
+    }
+
+    async function renderVisibleNeighborhood(centerPage) {
+      if (!pdfDoc) return;
+      const radius = 3; // Optimized for iPad Safari canvas memory limits
+      const startPage = Math.max(1, centerPage - radius);
+      const endPage = Math.min(totalPages, centerPage + radius);
+
+      for (const pageNum of Array.from(renderedPages)) {
+        if (Math.abs(pageNum - centerPage) > 8) {
+          const canvas = document.getElementById(`canvas-${pageNum}`);
+          const loader = document.getElementById(`loader-${pageNum}`);
+          if (canvas) {
+            canvas.width = 1;
+            canvas.height = 1;
+          }
+          if (loader) loader.style.display = "flex";
+          renderedPages.delete(pageNum);
+        }
+      }
+
+      for (let p = startPage; p <= endPage; p++) {
+        if (!renderedPages.has(p) && !renderingTasks.has(p)) {
+          renderSinglePDFPage(p);
+        }
+      }
+    }
+
+    async function renderSinglePDFPage(pageNumber) {
+      if (!pdfDoc || renderedPages.has(pageNumber)) return;
+      const canvas = document.getElementById(`canvas-${pageNumber}`);
+      const loader = document.getElementById(`loader-${pageNumber}`);
+      if (!canvas) return;
+
+      try {
+        renderingTasks.set(pageNumber, true);
+        const page = await pdfDoc.getPage(pageNumber);
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
+        const unscaled = page.getViewport({ scale: 1 });
+        const scale = (basePageWidth / unscaled.width) * dpr;
+        const viewport = page.getViewport({ scale });
+
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        const ctx = canvas.getContext("2d", { alpha: false });
+        const renderTask = page.render({ canvasContext: ctx, viewport });
+        renderingTasks.set(pageNumber, renderTask);
+        await renderTask.promise;
+
+        renderedPages.add(pageNumber);
+        renderingTasks.delete(pageNumber);
+        if (loader) loader.style.display = "none";
+      } catch (err) {
+        renderingTasks.delete(pageNumber);
+      }
+    }
+
+    async function extractAndRenderOutline() {
+      tocList.innerHTML = "";
+      if (!pdfDoc) return;
+      try {
+        const outline = await pdfDoc.getOutline();
+        if (outline && outline.length > 0) {
+          tocBadge.textContent = "PDF Outline";
+          const resolved = await resolveOutlineTree(outline);
+          renderTOCItems(resolved, tocList);
+        } else {
+          tocBadge.textContent = "Book TOC";
+          renderTOCItems(DAAC_4TH_EDITION_TOC, tocList);
+        }
+      } catch (e) {
+        renderTOCItems(DAAC_4TH_EDITION_TOC, tocList);
+      }
+    }
+
+    async function resolveOutlineTree(nodes) {
+      const out = [];
+      for (const node of nodes) {
+        let pdfPage = null;
+        try {
+          let dest = typeof node.dest === "string" ? await pdfDoc.getDestination(node.dest) : node.dest;
+          if (Array.isArray(dest) && dest[0]) {
+            pdfPage = (await pdfDoc.getPageIndex(dest[0])) + 1;
+          }
+        } catch (e) {}
+        const items = node.items && node.items.length ? await resolveOutlineTree(node.items) : [];
+        out.push({ title: node.title || "Section", pdfPage, items });
+      }
+      return out;
+    }
+
+    function renderTOCItems(items, parentUl) {
+      items.forEach((item) => {
+        const li = document.createElement("li");
+        const row = document.createElement("div");
+        row.className = "toc-item";
+        if (item.pdfPage) row.dataset.page = item.pdfPage;
+
+        row.innerHTML = `<span>${item.title}</span><span class="toc-page-num">${item.pdfPage ? "p. " + item.pdfPage : ""}</span>`;
+        row.addEventListener("click", () => {
+          if (item.pdfPage && pageFlip) {
+            pageFlip.flip(Math.max(0, Math.min(totalPages - 1, item.pdfPage - 1)));
+            if (window.innerWidth <= 900) sidebar.classList.add("collapsed");
+          }
+        });
+        li.appendChild(row);
+
+        if (item.items && item.items.length > 0) {
+          const nested = document.createElement("ul");
+          nested.className = "toc-nested";
+          renderTOCItems(item.items, nested);
+          li.appendChild(nested);
+        }
+        parentUl.appendChild(li);
+      });
+    }
+
+    function updateNavigationUI() {
+      if (!pdfDoc) return;
+      if (!isSinglePageMode && currentPage > 1 && currentPage < totalPages) {
+        const left = currentPage % 2 === 0 ? currentPage : currentPage - 1;
+        const right = Math.min(totalPages, left + 1);
+        pageIndicator.textContent = `${left}–${right} / ${totalPages}`;
+      } else {
+        pageIndicator.textContent = `Page ${currentPage} / ${totalPages}`;
+      }
+      pageJumpInput.value = currentPage;
+
+      const atStart = currentPage <= 1;
+      const atEnd = currentPage >= totalPages;
+      firstPageBtn.disabled = prevPageBtn.disabled = floatPrevBtn.disabled = atStart;
+      nextPageBtn.disabled = lastPageBtn.disabled = floatNextBtn.disabled = atEnd;
+
+      const rows = tocList.querySelectorAll(".toc-item");
+      let activeRow = null;
+      rows.forEach((r) => {
+        r.classList.remove("active");
+        const p = parseInt(r.dataset.page, 10);
+        if (!isNaN(p) && p <= currentPage) activeRow = r;
+      });
+      if (activeRow) activeRow.classList.add("active");
+    }
+
+    function enableToolbarControls() {
+      viewModeBtn.disabled = zoomInBtn.disabled = zoomOutBtn.disabled = false;
+      pageJumpInput.disabled = pageJumpBtn.disabled = false;
+      pageJumpInput.max = totalPages;
+    }
+
+    firstPageBtn.addEventListener("click", () => pageFlip && pageFlip.turnToPage(0));
+    prevPageBtn.addEventListener("click", () => pageFlip && pageFlip.flipPrev());
+    floatPrevBtn.addEventListener("click", () => pageFlip && pageFlip.flipPrev());
+    nextPageBtn.addEventListener("click", () => pageFlip && pageFlip.flipNext());
+    floatNextBtn.addEventListener("click", () => pageFlip && pageFlip.flipNext());
+    lastPageBtn.addEventListener("click", () => pageFlip && pageFlip.turnToPage(totalPages - 1));
+
+    pageJumpBtn.addEventListener("click", () => {
+      const p = parseInt(pageJumpInput.value, 10);
+      if (pageFlip && !isNaN(p)) pageFlip.flip(Math.max(0, Math.min(totalPages - 1, p - 1)));
+    });
+
+    viewModeBtn.addEventListener("click", async () => {
+      if (!pdfDoc) return;
+      isSinglePageMode = !isSinglePageMode;
+      await calculateDimensionsAndBuild();
+    });
+
+    function applyZoom(z) {
+      currentZoom = Math.max(0.6, Math.min(2.2, Math.round(z * 100) / 100));
+      zoomWrapper.style.transform = `scale(${currentZoom})`;
+      zoomBadge.textContent = `${Math.round(currentZoom * 100)}%`;
+    }
+    zoomInBtn.addEventListener("click", () => applyZoom(currentZoom + 0.15));
+    zoomOutBtn.addEventListener("click", () => applyZoom(currentZoom - 0.15));
+
+    fullscreenBtn.addEventListener("click", () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.();
+      } else {
+        document.exitFullscreen?.();
+      }
+    });
+
+    // Automatically adjust layout when rotating iPad between Portrait and Landscape
+    let resizeTimeout;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (!pdfDoc) return;
+        isSinglePageMode = window.innerWidth < window.innerHeight;
+        calculateDimensionsAndBuild();
+      }, 250);
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if (document.activeElement === pageJumpInput || !pageFlip) return;
+      if (e.key === "ArrowRight") pageFlip.flipNext();
+      else if (e.key === "ArrowLeft") pageFlip.flipPrev();
+    });
+  </script>
+</body>
+</html>
